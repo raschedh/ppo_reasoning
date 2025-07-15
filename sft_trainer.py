@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 from peft import LoraConfig
 from utils import get_model
+from datasets import load_from_disk 
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -33,7 +34,7 @@ def longest_seq_len(dataset, tok):
 def main() -> None:
     args = parse_args()
 
-    dataset = load_dataset("json", data_files=args.train_file, split="train")
+    train_dataset = load_from_disk(args.train_file)
 
     model, tokenizer = get_model(save_dir=args.model_path)
 

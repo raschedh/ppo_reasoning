@@ -1,6 +1,6 @@
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 
 def load_model(save_dir):
     tokenizer = AutoTokenizer.from_pretrained(save_dir)
@@ -27,10 +27,12 @@ def download_dataset(dataset_name, save_dir):
 
 
 if __name__ == "__main__":
-    download_model(model_name="launch/ThinkPRM-1.5B", save_dir="ThinkPRM-1.5B")
-    download_model(model_name="Qwen/Qwen2.5-7B", save_dir="Qwen2.5-7B")
+    # download_model(model_name="launch/ThinkPRM-1.5B", save_dir="ThinkPRM-1.5B")
+    # download_model(model_name="Qwen/Qwen2.5-7B", save_dir="Qwen2.5-7B")
     
     download_dataset("Asap7772/cog_behav_all_strategies", "cog_behav_all_strategies")
-    download_dataset("Jiayi-Pan/Countdown-Tasks-3to4", "Countdown-Tasks-3to4")
+    # download_dataset("Jiayi-Pan/Countdown-Tasks-3to4", "Countdown-Tasks-3to4")
 
+    # dataset = load_from_disk("cog_behav_all_strategies")
+    # print(dataset)
 
