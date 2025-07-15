@@ -6,6 +6,7 @@ import torch.distributed as dist
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 from peft import LoraConfig
+from utils import get_model
 
 def parse_args():
     p = argparse.ArgumentParser()

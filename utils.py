@@ -13,6 +13,7 @@ def get_model(save_dir="Qwen2.5-7B"):
     tokenizer.save_pretrained(save_dir)
 
     print(f"✅ Model and tokenizer saved to: {save_dir}")
+    return 
 
 def load_model(save_dir="Qwen2.5-7B"):
     tokenizer = AutoTokenizer.from_pretrained(save_dir)
@@ -21,4 +22,6 @@ def load_model(save_dir="Qwen2.5-7B"):
     return model, tokenizer
 
 if __name__ == "__main__":
-    get_model()
+    # get_model()
+    model, _ = load_model()
+    print(model)
