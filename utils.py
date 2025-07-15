@@ -30,9 +30,8 @@ if __name__ == "__main__":
     # download_model(model_name="launch/ThinkPRM-1.5B", save_dir="ThinkPRM-1.5B")
     # download_model(model_name="Qwen/Qwen2.5-7B", save_dir="Qwen2.5-7B")
     
-    download_dataset("Asap7772/cog_behav_all_strategies", "cog_behav_all_strategies")
+    # download_dataset("Asap7772/cog_behav_all_strategies", "cog_behav_all_strategies")
     # download_dataset("Jiayi-Pan/Countdown-Tasks-3to4", "Countdown-Tasks-3to4")
-
-    # dataset = load_from_disk("cog_behav_all_strategies")
-    # print(dataset)
-
+    
+    train_dataset = load_from_disk("cog_behav_all_strategies/train")
+    print(train_dataset)
