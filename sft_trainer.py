@@ -11,7 +11,7 @@ from utils import get_model
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--train_file", required=True)
-    p.add_argument("--model_name_or_path", default="Qwen/Qwen2.5-7B")
+    p.add_argument("--model_path", default="Qwen2.5-7B")
     p.add_argument("--output_dir", required=True)
     p.add_argument("--per_device_batch_size", type=int, default=2)
     p.add_argument("--gradient_accumulation_steps", type=int, default=8)
@@ -35,12 +35,7 @@ def main() -> None:
 
     dataset = load_dataset("json", data_files=args.train_file, split="train")
 
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_name_or_path,
-        torch_dtype="auto",
-        trust_remote_code=True,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, trust_remote_code=True)
+    model, tokenizer = get_model(save_dir=args.model_path)
 
     sft_args = SFTConfig(
         output_dir=args.output_dir,

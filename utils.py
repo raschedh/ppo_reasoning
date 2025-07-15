@@ -1,27 +1,34 @@
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from datasets import load_dataset
 
-def get_model(save_dir="Qwen2.5-7B"):
-    os.makedirs(save_dir, exist_ok=True)
-
-    # Download tokenizer and model directly from HF hub
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B")
-    model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-7B")
-
-    # Save locally
-    model.save_pretrained(save_dir)
-    tokenizer.save_pretrained(save_dir)
-
-    print(f"✅ Model and tokenizer saved to: {save_dir}")
-    return 
-
-def load_model(save_dir="Qwen2.5-7B"):
+def load_model(save_dir):
     tokenizer = AutoTokenizer.from_pretrained(save_dir)
     model = AutoModelForCausalLM.from_pretrained(save_dir)
-    print("✅ Model loaded successfully from local directory!")
     return model, tokenizer
 
+def download_model(model_dir):
+    os.makedirs(model_dir, exist_ok=True)
+
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    model = AutoModelForCausalLM.from_pretrained(model_dir)
+
+    model.save_pretrained(model_dir)
+    tokenizer.save_pretrained(model_dir)
+    print(f"✅ Model and tokenizer saved to: {model_dir}")
+    return 
+
+def download_dataset(data_dir):
+    os.makedirs(data_dir, exist_ok=True)
+    ds = load_dataset(data_dir)
+    ds.save_to_disk(data_dir)
+    print(f"✅ Dataset saved locally at: {data_dir}")
+    return 
+
 if __name__ == "__main__":
-    # get_model()
-    model, _ = load_model()
-    print(model)
+    download_model(model_dir="ThinkPRM-7B")
+    download_model(model_dir="Qwen/Qwen2.5-7B")
+    
+    download_dataset(data_dir="Asap7772/cog_behav_all_strategies")
+    download_dataset(data_dir="Jiayi-Pan/Countdown-Tasks-3to4")
+
