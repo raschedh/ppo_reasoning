@@ -7,17 +7,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig, get_peft_model
 
-# -------------------- Reward Model API -------------------- #
-REWARD_MODEL_URL = "http://localhost:8000/v1/completions"
-REWARD_MODEL_NAME = "launch/ThinkPRM-1.5B"
 
-def get_reward_from_thinkprm(prompts, responses):
+def get_rewards(prompts, responses, reward_model_path, reward_model_url):
     """
     Query ThinkPRM reward model running on vLLM.
     Returns a list of scalar rewards.
     """
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(REWARD_MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(reward_model_path)
 
     rewards = []
     for prompt, response in zip(prompts, responses):
@@ -27,7 +23,7 @@ def get_reward_from_thinkprm(prompts, responses):
                             [Solution]
                             {response}
                             Review and critique each step in the proposed solution to determine whether each step is correct. 
-                            If the solution is incomplete, only verify the provided steps
+                            If the solution is incomplete, only verify the provided steps.
                             """
 
         formatted_prompt = tokenizer.apply_chat_template(
@@ -37,13 +33,13 @@ def get_reward_from_thinkprm(prompts, responses):
         ) + "\nLet's verify step by step:"
 
         payload = {
-            "model": REWARD_MODEL_NAME,
+            "model": reward_model_path,
             "prompt": [formatted_prompt],
-            "max_tokens": 1024,
+            "max_tokens": 2048,
             "temperature": 0.0
         }
 
-        r = requests.post(REWARD_MODEL_URL, json=payload)
+        r = requests.post(reward_model_url, json=payload)
         r.raise_for_status()
         verification_cot = r.json()["choices"][0]["text"]
 
@@ -125,7 +121,7 @@ def main():
         response_texts = tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
         # 2) Compute rewards using ThinkPRM
-        rewards = get_reward_from_thinkprm([query], response_texts)
+        rewards = get_rewards([query], response_texts, args.reward_model_path, args.reward_model_url)
 
         # 3) Run PPO step
         trainer.step([query], response_texts, rewards)
