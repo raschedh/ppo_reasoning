@@ -7,6 +7,7 @@ from peft import LoraConfig
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainerCallback
 import random
+from datetime import datetime
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -32,10 +33,10 @@ def formatting_prompts_func(examples):
     ]
 
 class PrintExampleCallback(TrainerCallback):
-    def __init__(self, tokenizer, dataset):
+    def __init__(self, tokenizer, dataset, log_file):
         self.tokenizer = tokenizer
         self.dataset = dataset
-        self.log_file = "training_examples.log"
+        self.log_file = log_file
 
     def on_log(self, args, state, control, **kwargs):
         # Trigger every logging_steps
@@ -64,6 +65,10 @@ class PrintExampleCallback(TrainerCallback):
 
 def main() -> None:
     args = parse_args()
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.output_dir = f"{args.output_dir.rstrip('/')}_{timestamp}"
+    log_file = f"training_examples_{timestamp}.log"
 
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     train_dataset = load_dataset(args.train_path)["train"]
@@ -118,7 +123,7 @@ def main() -> None:
         peft_config=lora_cfg,
         formatting_func=formatting_prompts_func,
         data_collator=data_collator,  # ✅ Required for completion-only
-        callbacks=[PrintExampleCallback(tokenizer, train_dataset)],  # ✅ Added callback
+        callbacks=[PrintExampleCallback(tokenizer=tokenizer, dataset=train_dataset, log_file=log_file)],  # ✅ Added callback
 
     )
 
@@ -146,7 +151,7 @@ def main() -> None:
     random_output = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
     # --- Log both to file ---
-    with open("training_examples.log", "a", encoding="utf-8") as f:
+    with open(log_file, "a", encoding="utf-8") as f:
         f.write(
             "\n" + "=" * 50 +
             "\n=== INITIAL MODEL CHECK (FIRST EXAMPLE) ===\n"
