@@ -20,13 +20,16 @@ LORA_RANK=64
 LORA_ALPHA=128
 LORA_DROPOUT=0.0
 LORA_TARGET_MODULES="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj"
-LOG_STEPS=1
+LOG_STEPS=50
 # --------------------------------------------------------------------- #
 
 echo "Launching SFT run on $(hostname)..."
 
 accelerate launch \
     --num_processes 1 \
+    --num_machines 1 \
+    --mixed_precision bf16 \
+    --dynamo_backend no \
     sft_trainer.py \
     --train_path "${TRAIN_PATH}" \
     --model_path "${MODEL_PATH}" \
