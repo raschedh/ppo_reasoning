@@ -40,7 +40,10 @@ def main() -> None:
     
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     train_dataset = load_dataset(args.train_path)["train"]
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    tokenizer.pad_token = tokenizer.eos_token
+
     model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch_dtype)
     
     sft_args = SFTConfig(
