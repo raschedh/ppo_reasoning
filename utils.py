@@ -33,5 +33,6 @@ if __name__ == "__main__":
     # download_dataset("Asap7772/cog_behav_all_strategies", "cog_behav_all_strategies")
     # download_dataset("Jiayi-Pan/Countdown-Tasks-3to4", "Countdown-Tasks-3to4")
     
-    train_dataset = load_from_disk("cog_behav_all_strategies/train")
+    # train_dataset = load_from_disk("cog_behav_all_strategies/train")
+    train_dataset = load_dataset("Asap7772/cog_behav_all_strategies")["train"]
     print(train_dataset)

@@ -1,20 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=sft
-#SBATCH --output=logs/%A_sft.log
+#SBATCH --job-name=sft_trainer
+#SBATCH --output=logs/%A_sft_trainer.log
 #SBATCH --gres=gpu:2
 
 # -------- Environment ------------------------------------------------ #
 source ~/.bashrc
-# conda activate seal_env
-# cd ~/SEAL
 
 # -------- User-editable ---------------------------------------------- #
 MODEL_PATH="Qwen/Qwen2.5-7B"  # Base model path
-TRAIN_FILE="synthetic_data/EM_SFT/sft_best1of5_iter0.jsonl"  # Training data
-OUTPUT_DIR="models/iter1"
+TRAIN_PATH="Asap7772/cog_behav_all_strategies"  # Training data
+OUTPUT_DIR="sft_model/"
 mkdir -p "${OUTPUT_DIR}"
 
-PER_DEVICE_BATCH_SIZE=1  # Recommended for 4096 tokens on 24GB GPUs
+PER_DEVICE_BATCH_SIZE=1
 GRAD_ACC=5
 EPOCHS=2
 LR=3e-4
@@ -30,7 +28,7 @@ echo "Launching SFT run on $(hostname)..."
 accelerate launch \
     --num_processes 2 \
     train_SFT.py \
-    --train_file "${TRAIN_FILE}" \
+    --train_path "${TRAIN_PATH}" \
     --model_path "${MODEL_PATH}" \
     --output_dir "${OUTPUT_DIR}" \
     --per_device_batch_size ${PER_DEVICE_BATCH_SIZE} \

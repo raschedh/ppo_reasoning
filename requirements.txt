@@ -1,0 +1,8 @@
+torch
+vllm
+argparse
+requests
+datasets 
+transformers 
+trl 
+peft 

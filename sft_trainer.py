@@ -4,13 +4,13 @@ import torch
 import torch.distributed as dist
 from trl import SFTConfig, SFTTrainer
 from peft import LoraConfig
-from utils import get_model
-from datasets import load_from_disk
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--train_file", required=True)
-    p.add_argument("--model_path", default="Qwen2.5-7B")
+    p.add_argument("--train_path", required=True)
+    p.add_argument("--model_path", default="Qwen/Qwen2.5-7B")
     p.add_argument("--output_dir", required=True)
     p.add_argument("--per_device_batch_size", type=int, default=2)
     p.add_argument("--gradient_accumulation_steps", type=int, default=8)
@@ -37,10 +37,12 @@ def formatting_prompts_func(examples):
 
 def main() -> None:
     args = parse_args()
-
-    train_dataset = load_from_disk(args.train_file)
-    model, tokenizer = get_model(save_dir=args.model_path)
-
+    
+    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    train_dataset = load_dataset(args.train_path)["train"]
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch_dtype)
+    
     sft_args = SFTConfig(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.per_device_batch_size,
