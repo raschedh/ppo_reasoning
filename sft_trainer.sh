@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=sft_trainer
 #SBATCH --output=logs/%A_sft_trainer.log
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 
 # -------- Environment ------------------------------------------------ #
 source ~/.bashrc
-
+pip install transformers trl peft datasets accelerate --quiet
 # -------- User-editable ---------------------------------------------- #
 MODEL_PATH="Qwen/Qwen2.5-7B"  # Base model path
 TRAIN_PATH="Asap7772/cog_behav_all_strategies"  # Training data
@@ -26,8 +26,8 @@ LOG_STEPS=1
 echo "Launching SFT run on $(hostname)..."
 
 accelerate launch \
-    --num_processes 2 \
-    train_SFT.py \
+    --num_processes 1 \
+    sft_trainer.py \
     --train_path "${TRAIN_PATH}" \
     --model_path "${MODEL_PATH}" \
     --output_dir "${OUTPUT_DIR}" \
