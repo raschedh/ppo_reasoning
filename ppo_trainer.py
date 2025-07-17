@@ -46,7 +46,7 @@ def get_rewards(prompts, responses, reward_model_path, reward_model_url):
         payload = {
             "model": reward_model_path,
             "prompt": [formatted_prompt],
-            "max_tokens": 2048,
+            "max_tokens": 4096,
             "temperature": 0.0
         }
 
@@ -72,8 +72,8 @@ def parse_args():
     p.add_argument("--batch_size", type=int, default=4)
     p.add_argument("--ppo_epochs", type=int, default=4)
     p.add_argument("--lora_rank", type=int, default=32)
-    p.add_argument("--max_prompt_length", type=int, default=512)
-    p.add_argument("--max_gen_length", type=int, default=512)
+    p.add_argument("--max_prompt_length", type=int, default=4096)
+    p.add_argument("--max_gen_length", type=int, default=4096)
     return p.parse_args()
 
 def main():
@@ -97,9 +97,8 @@ def main():
 
     base_model = AutoModelForCausalLM.from_pretrained(
         args.sft_model_path,
-        torch_dtype=torch_dtype,
-        device_map={"": 0}  # PPO runs on the assigned GPU
-    )
+        torch_dtype=torch_dtype
+        ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
     # ✅ Add value head for PPO
     model = AutoModelForCausalLMWithValueHead.from_pretrained(base_model)

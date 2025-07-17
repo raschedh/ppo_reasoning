@@ -7,13 +7,16 @@
 #SBATCH --mem=64G
 
 source ~/.bashrc
-# conda activate your_rlhf_env
-
+pip install --upgrade --quiet \
+    transformers==4.38.2 \
+    trl==0.9.4 \
+    peft==0.10.0 \
+    datasets accelerate
 # -------- Paths & Config -------- #
 SFT_MODEL="models/qwen2.5-7b_sft"
 REWARD_MODEL="launch/ThinkPRM-7B"
-DATASET="data/new_math_prompts.json"
-OUTPUT_DIR="models/ppo_qwen2.5"
+DATASET="Jiayi-Pan/Countdown-Tasks-3to4"
+OUTPUT_DIR="ppo_model/"
 PORT=8000
 REWARD_MODEL_URL="http://localhost:${PORT}/v1/completions"
 
@@ -31,7 +34,7 @@ VLLM_PID=$!
 
 # -------- Run PPO training on GPU 1 -------- #
 echo "[INFO] Starting PPO training on GPU 1..."
-CUDA_VISIBLE_DEVICES=1 python ppo_train.py \
+CUDA_VISIBLE_DEVICES=1 python ppo_trainer.py \
     --sft_model_path ${SFT_MODEL} \
     --reward_model_path ${REWARD_MODEL} \
     --reward_model_url ${REWARD_MODEL_URL} \
