@@ -9,6 +9,7 @@ from peft import LoraConfig, get_peft_model
 from torch.utils.data import DataLoader
 import random
 from datetime import datetime
+from tqdm import tqdm 
 
 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 LOG_EXAMPLE_FILE = f"ppo_training_example_log_{timestamp}.txt"
@@ -174,9 +175,9 @@ def main():
     trainer = PPOTrainer(config=ppo_config, model=model, tokenizer=tokenizer)
 
     # ✅ PPO Training Loop
-    for step, batch in enumerate(dataloader):
+    for step, batch in enumerate(tqdm(dataloader, desc="PPO Training", unit="batch")):
         queries = batch["prompt"]  # already a list of strings
-
+        print(9)
         # ✅ Tokenize batch (variable-length handled by padding=True)
         tokenized_queries = tokenizer(
             queries,
@@ -187,18 +188,19 @@ def main():
         )
 
         queries_tensors = [q for q in tokenized_queries.input_ids]
-
+        print(8)
         response_ids = trainer.generate(
             queries_tensors,
-            max_new_tokens=args.max_gen_length,
+            max_new_tokens=512,
             do_sample=True,
             temperature=0.7
         )
+        print(7)
         response_texts = tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
         # ✅ Get rewards (batch mode)
         rewards = get_rewards(queries, response_texts, args.reward_model_path, args.reward_model_url)
-
+        print(6)
         # ✅ PPO step
         trainer.step(queries, response_texts, rewards)
         

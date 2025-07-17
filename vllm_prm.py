@@ -7,7 +7,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--task", type=str, default="reward")
     parser.add_argument("--max_model_len", type=int, default=5000)
-    # parser.add_argument("--gpu-memory-utilization", type=float, default=0.9)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.6)
     args = parser.parse_args()
 
     print(f"🚀 Starting vLLM server for {args.model} on port {args.port}")
@@ -18,7 +18,7 @@ def main():
         "--port", str(args.port),
         "--max-model-len", str(args.max_model_len),
         "--task", args.task,
-        # "--gpu-memory-utilization", str(args.gpu_memory_utilization),
+        "--gpu-memory-utilization", str(args.gpu_memory_utilization),
         "--trust-remote-code"
     ])
 

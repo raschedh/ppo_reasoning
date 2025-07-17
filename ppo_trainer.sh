@@ -20,10 +20,10 @@ echo "[INFO] Allocated GPUs: $CUDA_VISIBLE_DEVICES"
 
 # -------- Start vLLM server on GPU 0 -------- #
 echo "[INFO] Starting vLLM server on GPU 0..."
-CUDA_VISIBLE_DEVICES=0 nohup python -u vllm_prm.py \
+CUDA_VISIBLE_DEVICES=0 nohup python vllm_prm.py \
     --model ${REWARD_MODEL} \
     --port ${PORT} \
-    # --gpu-memory-utilization 0.8 \
+    --gpu-memory-utilization 0.6 \
     --max_model_len 5000 &
 
 VLLM_PID=$!
