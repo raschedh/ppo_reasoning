@@ -50,7 +50,7 @@ class PrintExampleCallback(TrainerCallback):
             model = kwargs["model"]
             model.eval()
             with torch.no_grad():
-                output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length, do_sample=False)
+                output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length - inputs["input_ids"].shape[1], do_sample=False)
             generated_text = self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
             log_entry = (
@@ -139,7 +139,7 @@ def main() -> None:
     inputs = tokenizer(first_query, return_tensors="pt").to("cuda" if torch.cuda.is_available() else "cpu")
 
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length, do_sample=False)
+        output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length - inputs["input_ids"].shape[1], do_sample=False)
     first_output = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
     # --- Random example ---
@@ -147,7 +147,7 @@ def main() -> None:
 
     inputs = tokenizer(random_query, return_tensors="pt").to("cuda" if torch.cuda.is_available() else "cpu")
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length, do_sample=False)
+        output_ids = model.generate(**inputs, max_new_tokens=args.max_seq_length - inputs["input_ids"].shape[1], do_sample=False)
     random_output = tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
     # --- Log both to file ---

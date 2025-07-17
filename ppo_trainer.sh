@@ -6,11 +6,8 @@
 #SBATCH --mem=64G
 
 source ~/.bashrc
-pip install --upgrade --quiet \
-    transformers==4.38.2 \
-    trl==0.9.4 \
-    peft==0.10.0 \
-    datasets accelerate
+# pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
+# pip install --upgrade vllm
 # -------- Paths & Config -------- #
 SFT_MODEL="seldschuk/sft-model"
 REWARD_MODEL="launch/ThinkPRM-7B"
@@ -23,17 +20,17 @@ echo "[INFO] Allocated GPUs: $CUDA_VISIBLE_DEVICES"
 
 # -------- Start vLLM server on GPU 0 -------- #
 echo "[INFO] Starting vLLM server on GPU 0..."
-CUDA_VISIBLE_DEVICES=0 python vllm_prm.py \
+CUDA_VISIBLE_DEVICES=0 python -u vllm_prm.py \
     --model ${REWARD_MODEL} \
     --port ${PORT} \
-    --max_model_len 16384 \
-    --gpu_util 0.6 &
+    # --gpu-memory-utilization 0.8 \
+    --max_model_len 5000 &
 
 VLLM_PID=$!
 
 # -------- Run PPO training on GPU 1 -------- #
 echo "[INFO] Starting PPO training on GPU 1..."
-CUDA_VISIBLE_DEVICES=1 python ppo_trainer.py \
+CUDA_VISIBLE_DEVICES=1 python -u ppo_trainer.py \
     --sft_model_path ${SFT_MODEL} \
     --reward_model_path ${REWARD_MODEL} \
     --reward_model_url ${REWARD_MODEL_URL} \

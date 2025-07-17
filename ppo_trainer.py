@@ -40,7 +40,7 @@ def wait_for_vllm_server(url, timeout=300):
         try:
             r = requests.get(url.replace("/v1/completions", "/health"))
             if r.status_code == 200:
-                print("[INFO] vLLM server is ready!")
+                print("[INFO] 🚀 vLLM server is ready!")
                 return
         except Exception:
             pass
@@ -75,6 +75,7 @@ def get_rewards(prompts, responses, reward_model_path, reward_model_url):
 
         r = requests.post(reward_model_url, json=payload)
         r.raise_for_status()
+        print(formatted_prompt)
         verification_cot = r.json()["choices"][0]["text"]
 
         correct_steps = verification_cot.count("\\boxed{correct}")
@@ -111,8 +112,8 @@ def main():
 
     # ✅ Ensure bf16 or fp16 on the current GPU
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Using device: {device}, dtype: {torch_dtype}")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(f"[INFO] Using device: {device}, dtype: {torch_dtype}")
 
     # ✅ Wait for vLLM server to be ready
     wait_for_vllm_server(args.reward_model_url)
@@ -121,36 +122,43 @@ def main():
     dataset = load_dataset(args.dataset)["train"]
     dataset = dataset.map(lambda x: {
         "prompt": (
-            f"User: Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}... "
-            "Assistant: Let me solve this step by step."
-        )
-    })
+            f"Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}... "
+            )
+        })
     dataset = dataset.remove_columns(["target", "nums"])
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    # ✅ Load tokenizer & policy model
-    tokenizer = AutoTokenizer.from_pretrained(args.sft_model_path)
+    # ✅ Load tokenizer (base model tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B", trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right"
+    tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.padding_side = "left"
+
+    # ✅ Load your SFT model
+    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
     base_model = AutoModelForCausalLM.from_pretrained(
         args.sft_model_path,
-        torch_dtype=torch_dtype
-        ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        torch_dtype=torch_dtype,
+        trust_remote_code=True
+    )
 
-    # ✅ Add value head for PPO
-    model = AutoModelForCausalLMWithValueHead.from_pretrained(base_model)
-
-    # ✅ LoRA
+    # ✅ Apply LoRA
     lora_config = LoraConfig(
         r=args.lora_rank,
         lora_alpha=16,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj","k_proj","v_proj", "o_proj","gate_proj","up_proj","down_proj"]
+        target_modules=[
+            "q_proj", "k_proj", "v_proj", "o_proj",
+            "gate_proj", "up_proj", "down_proj"
+        ]
     )
-    model = get_peft_model(model, lora_config)
+    base_model = get_peft_model(base_model, lora_config)
+
+    # ✅ Wrap WITH the PPO value head (Correct Way)
+    model = AutoModelForCausalLMWithValueHead(base_model)
 
     # ✅ PPO Config
     ppo_config = PPOConfig(
@@ -176,11 +184,12 @@ def main():
             padding=True,
             truncation=True,
             max_length=args.max_prompt_length
-        ).to(model.device)
+        )
 
-        # ✅ Generate responses
+        queries_tensors = [q for q in tokenized_queries.input_ids]
+
         response_ids = trainer.generate(
-            tokenized_queries.input_ids,
+            queries_tensors,
             max_new_tokens=args.max_gen_length,
             do_sample=True,
             temperature=0.7
@@ -192,6 +201,8 @@ def main():
 
         # ✅ PPO step
         trainer.step(queries, response_texts, rewards)
+        
+        print(f"[DEBUG] Step {step} completed. Avg Reward: {sum(rewards)/len(rewards):.4f}")
 
         log_all_rewards(step, rewards)
         # ✅ Only log an example every 50 steps
