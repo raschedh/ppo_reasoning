@@ -3,7 +3,6 @@
 #SBATCH --output=logs/%A_ppo_qwen.log
 #SBATCH --gres=gpu:2 
 #SBATCH --time=72:00:00
-#SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 
 source ~/.bashrc
@@ -13,7 +12,7 @@ pip install --upgrade --quiet \
     peft==0.10.0 \
     datasets accelerate
 # -------- Paths & Config -------- #
-SFT_MODEL="models/qwen2.5-7b_sft"
+SFT_MODEL="seldschuk/sft-model"
 REWARD_MODEL="launch/ThinkPRM-7B"
 DATASET="Jiayi-Pan/Countdown-Tasks-3to4"
 OUTPUT_DIR="ppo_model/"
@@ -40,7 +39,8 @@ CUDA_VISIBLE_DEVICES=1 python ppo_trainer.py \
     --reward_model_url ${REWARD_MODEL_URL} \
     --dataset ${DATASET} \
     --output_dir ${OUTPUT_DIR} \
-    --batch_size 4 \
+    --mini_batch_size 4\
+    --batch_size 16 \
     --ppo_epochs 4
 
 # -------- Cleanup -------- #

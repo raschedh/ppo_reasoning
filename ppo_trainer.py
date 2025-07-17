@@ -1,4 +1,3 @@
-import os
 import time
 import requests
 import torch
@@ -7,6 +6,30 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig, get_peft_model
+from torch.utils.data import DataLoader
+import random
+from datetime import datetime
+
+timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+LOG_EXAMPLE_FILE = f"ppo_training_example_log_{timestamp}.txt"
+LOG_REWARD_FILE = f"ppo_training_reward_log_{timestamp}.txt"
+
+# -------------------- PPO Training -------------------- #
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--sft_model_path", required=True)
+    p.add_argument("--reward_model_path", required=True)
+    p.add_argument("--reward_model_url", default="http://localhost:8000/v1/completions")
+    p.add_argument("--dataset", required=True)
+    p.add_argument("--output_dir", default="./ppo_results")
+    p.add_argument("--learning_rate", type=float, default=1.41e-5)
+    p.add_argument("--batch_size", type=int, default=8)
+    p.add_argument("--ppo_epochs", type=int, default=4)
+    p.add_argument("--mini_batch_size", type=int, default=4)
+    p.add_argument("--lora_rank", type=int, default=32)
+    p.add_argument("--max_prompt_length", type=int, default=4096)
+    p.add_argument("--max_gen_length", type=int, default=4096)
+    return p.parse_args()
 
 # -------------------- Reward Model Query -------------------- #
 def wait_for_vllm_server(url, timeout=300):
@@ -60,21 +83,28 @@ def get_rewards(prompts, responses, reward_model_path, reward_model_url):
 
     return rewards
 
-# -------------------- PPO Training -------------------- #
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument("--sft_model_path", required=True)
-    p.add_argument("--reward_model_path", required=True)
-    p.add_argument("--reward_model_url", default="http://localhost:8000/v1/completions")
-    p.add_argument("--dataset", required=True)
-    p.add_argument("--output_dir", default="./ppo_results")
-    p.add_argument("--learning_rate", type=float, default=1.41e-5)
-    p.add_argument("--batch_size", type=int, default=4)
-    p.add_argument("--ppo_epochs", type=int, default=4)
-    p.add_argument("--lora_rank", type=int, default=32)
-    p.add_argument("--max_prompt_length", type=int, default=4096)
-    p.add_argument("--max_gen_length", type=int, default=4096)
-    return p.parse_args()
+def log_example(step, queries, responses, rewards):
+    """Log a random example with timestamp to a file."""
+    idx = random.randint(0, len(queries) - 1)
+    avg_reward = sum(rewards) / len(rewards)
+
+    log_entry = (
+        f"\nStep {step}\n"
+        f"Average Reward: {avg_reward:.4f}\n"
+        f"Prompt:\n{queries[idx]}\n\n"
+        f"Response:\n{responses[idx]}\n\n"
+        f"Reward: {rewards[idx]:.4f}\n"
+        + "=" * 50 + "\n"
+    )
+    # Print to console and append to log file
+    with open(LOG_EXAMPLE_FILE, "a") as f:
+        f.write(log_entry)
+
+def log_all_rewards(step, rewards):
+    """Append average reward for every batch to a separate file."""
+    avg_reward = sum(rewards) / len(rewards)
+    with open(LOG_REWARD_FILE, "a") as f:
+        f.write(f"{timestamp}, Step {step}, Avg Reward: {avg_reward:.4f}\n")
 
 def main():
     args = parse_args()
@@ -88,7 +118,15 @@ def main():
     wait_for_vllm_server(args.reward_model_url)
 
     # ✅ Load dataset
-    dataset = load_dataset("json", data_files=args.dataset)["train"]
+    dataset = load_dataset(args.dataset)["train"]
+    dataset = dataset.map(lambda x: {
+        "prompt": (
+            f"User: Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}... "
+            "Assistant: Let me solve this step by step."
+        )
+    })
+    dataset = dataset.remove_columns(["target", "nums"])
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
     # ✅ Load tokenizer & policy model
     tokenizer = AutoTokenizer.from_pretrained(args.sft_model_path)
@@ -110,14 +148,14 @@ def main():
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"]
+        target_modules=["q_proj","k_proj","v_proj", "o_proj","gate_proj","up_proj","down_proj"]
     )
     model = get_peft_model(model, lora_config)
 
     # ✅ PPO Config
     ppo_config = PPOConfig(
         learning_rate=args.learning_rate,
-        mini_batch_size=args.batch_size,
+        mini_batch_size=args.mini_batch_size,
         batch_size=args.batch_size,
         ppo_epochs=args.ppo_epochs,
         log_with=None,
@@ -128,21 +166,37 @@ def main():
     trainer = PPOTrainer(config=ppo_config, model=model, tokenizer=tokenizer)
 
     # ✅ PPO Training Loop
-    for epoch, batch in enumerate(dataset):
-        query = batch["prompt"]
-        tokenized_query = tokenizer(query, return_tensors="pt", truncation=True, max_length=args.max_prompt_length).to(model.device)
+    for step, batch in enumerate(dataloader):
+        queries = batch["prompt"]  # already a list of strings
 
+        # ✅ Tokenize batch (variable-length handled by padding=True)
+        tokenized_queries = tokenizer(
+            queries,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=args.max_prompt_length
+        ).to(model.device)
+
+        # ✅ Generate responses
         response_ids = trainer.generate(
-            tokenized_query.input_ids,
+            tokenized_queries.input_ids,
             max_new_tokens=args.max_gen_length,
             do_sample=True,
             temperature=0.7
         )
         response_texts = tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
-        rewards = get_rewards([query], response_texts, args.reward_model_path, args.reward_model_url)
-        trainer.step([query], response_texts, rewards)
-        print(f"[Epoch {epoch}] Reward: {rewards}")
+        # ✅ Get rewards (batch mode)
+        rewards = get_rewards(queries, response_texts, args.reward_model_path, args.reward_model_url)
+
+        # ✅ PPO step
+        trainer.step(queries, response_texts, rewards)
+
+        log_all_rewards(step, rewards)
+        # ✅ Only log an example every 50 steps
+        if step % 50 == 0:
+            log_example(step, queries, response_texts, rewards)
 
     model.save_pretrained(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)

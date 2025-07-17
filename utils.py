@@ -34,5 +34,12 @@ if __name__ == "__main__":
     # download_dataset("Jiayi-Pan/Countdown-Tasks-3to4", "Countdown-Tasks-3to4")
     
     # train_dataset = load_from_disk("cog_behav_all_strategies/train")
-    train_dataset = load_dataset("Asap7772/cog_behav_all_strategies")["train"]
-    print(train_dataset)
+    train_dataset = load_dataset("Jiayi-Pan/Countdown-Tasks-3to4")["train"]
+    dataset = train_dataset.map(lambda x: {
+        "prompt": (
+            f"Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}."
+        )
+    })
+
+    print(dataset[0])
+    print(dataset)
