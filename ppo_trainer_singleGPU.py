@@ -1,6 +1,6 @@
 import torch
 import argparse
-from datasets import load_dataset
+from datasets import load_dataset, load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig, get_peft_model
@@ -17,7 +17,6 @@ from datasets import load_from_disk
 # ---------- Global Log Files ---------- #
 RUN_TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 LOG_FILE = f"ppo_training_example_log_{RUN_TIMESTAMP}.txt"
-# download_tldr_hf()
 
 # ---------- Argument Parsing ---------- #
 def parse_args():
@@ -38,12 +37,6 @@ def parse_args():
 
 # ---------- Reward Function (ThinkPRM-based) ---------- #
 def get_rewards(tokenizer, llm, problems, prefixes):
-    """
-    Batched reward computation using vLLM.
-    Returns a list of floats (one per input).
-    - If the policy tries to cheat by including ThinkPRM-style tokens, it gets -1.0 immediately.
-    - Otherwise, reward is based purely on ThinkPRM step evaluations (boxed{correct}/boxed{incorrect}).
-    """
     prompts = []
     for problem, prefix in zip(problems, prefixes):
         prompt = f"""You are given a math problem and a proposed step-by-step solution:
@@ -68,50 +61,55 @@ def get_rewards(tokenizer, llm, problems, prefixes):
     rewards = []
     for prefix, out in zip(prefixes, outputs):
         # ✅ Immediate penalty for reward hacking
-        if "boxed{correct}" in prefix or "boxed{incorrect}" in prefix:
+        if any(x in prefix for x in ["boxed{correct}", "boxed{incorrect}",
+                                     "Is the solution correct? Yes", "Is the solution correct? No"]):
             rewards.append(-1.0)
             continue
 
-        # ✅ Standard ThinkPRM-based reward
         text = out.outputs[0].text.strip()
-        correct_steps = text.count("boxed{correct}")
+
+        # ✅ Count step-level correctness
+        correct_steps = text.count("boxed{correct}") 
         incorrect_steps = text.count("boxed{incorrect}")
         total_steps = correct_steps + incorrect_steps
 
-        if total_steps == 0:
-            reward = 0.0  # No explicit evaluation
-        else:
-            reward = (correct_steps - incorrect_steps) / total_steps
-            reward = max(-1.0, min(1.0, reward))  # Clamp to [-1,1]
+        if total_steps > 20:
+            rewards.append(-1.0)
+            continue   
 
+        # ✅ Base reward (step-level)
+        if total_steps > 0:
+            base_reward = (correct_steps - incorrect_steps) / total_steps
+        else:
+            base_reward = 0.0  # Neutral if PRM gave no boxed feedback
+
+        # ✅ Final judgment adjustment (small weighting, e.g., ±0.2)
+        if "Is the solution correct? Yes" in text:
+            base_reward += 0.2
+        elif "Is the solution correct? No" in text:
+            base_reward -= 0.2
+
+        # ✅ Clamp to [-1, 1]
+        reward = max(-1.0, min(1.0, base_reward))
         rewards.append(reward)
 
     return rewards, outputs
 
 
 # ---------- Logging Functions ---------- #
-def log_step(step, queries, responses, rewards, reward_outputs):
-    avg_reward = sum(rewards) / len(rewards)
-    
-    # ---- Pick a random example ----
-    idx = random.randint(0, len(queries) - 1)
-    critique = reward_outputs[idx].outputs[0].text.strip()
+def log_step(step, query, response, reward, reward_output, avg_reward):
+    critique = reward_output.outputs[0].text.strip()
 
-    # ---- Write to single log file ----
     log_entry = (
-        f"\n[Step {step} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]\n"
+        f"\n[Step {step}\n"
         f"Average Reward: {avg_reward:.4f}\n\n"
-        f"Prompt:\n{queries[idx]}\n\n"
-        f"Response:\n{responses[idx]}\n\n"
-        f"Reward: {rewards[idx]:.4f}\n\n"
+        f"Prompt:\n{query}\n\n"
+        f"Response:\n{response}\n\n"
+        f"Reward: {reward:.4f}\n\n"
         f"Reward Model Output:\n{critique}\n"
         + "=" * 50 + "\n"
     )
     with open(LOG_FILE, "a") as f:
-        f.write(
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, "
-            f"Step {step}, Avg Reward: {avg_reward:.4f}\n"
-        )
         f.write(log_entry)
 
 # ---------- Main PPO Training ---------- #
@@ -120,9 +118,7 @@ def main():
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
     # ✅ Load Dataset
-    # dataset = load_dataset(args.dataset)["train"]
-    dataset = load_from_disk('data_hf/countdown_dataset')["train"]
-
+    dataset = load_dataset(args.dataset)["train"]
     dataset = dataset.map(lambda x: {
         "prompt": (
             f"""Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}.
@@ -188,15 +184,14 @@ def main():
         # ✅ Generate responses
         response_ids = trainer.generate(
             queries_tensors,
-            max_new_tokens=512,
+            max_length=args.max_prompt_length,
             do_sample=True,
             temperature=0.7,
             pad_token_id=gen_tokenizer.eos_token_id
         )
 
         response_texts = gen_tokenizer.batch_decode(response_ids, skip_special_tokens=True)
-        for i, txt in enumerate(response_texts):
-            print(f"[Sample {i}] {repr(txt)}")
+
         # ✅ Compute rewards
         rewards, reward_outputs = get_rewards(reward_tokenizer, reward_llm, queries, response_texts)
         rewards = [torch.tensor(r, dtype=torch.float32).to(trainer.accelerator.device) for r in rewards]
@@ -213,7 +208,8 @@ def main():
 
         # ✅ Logging
         if step % 5 == 0:
-            log_step(step, queries, response_texts, rewards, reward_outputs)
+            avg_reward = sum(rewards) / len(rewards)
+            log_step(step, queries[0], response_texts[0], rewards[0], reward_outputs[0], avg_reward)
 
     # ✅ Save Model
     policy.save_pretrained(args.output_dir)

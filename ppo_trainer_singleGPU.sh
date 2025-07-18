@@ -3,10 +3,9 @@
 #SBATCH --output=logs/%A_ppo.log
 
 source ~/.bashrc
-pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
-pip install --upgrade vllm
-huggingface-cli login
-python simple_download.py
+# pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
+# pip install --upgrade vllm
+# huggingface-cli login
 
 # -------- Paths & Config -------- #
 SFT_MODEL="seldschuk/sft-model"
