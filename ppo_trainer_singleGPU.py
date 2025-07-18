@@ -61,7 +61,7 @@ def get_rewards(tokenizer, llm, problems, prefixes):
     rewards = []
     for prefix, out in zip(prefixes, outputs):
         # ✅ Immediate penalty for reward hacking
-        if any(x in prefix for x in ["boxed{correct}", "boxed{incorrect}", "correct", "incorrect",
+        if any(x in prefix for x in ["boxed{correct}", "boxed{incorrect}",
                                      "Is the solution correct? Yes", "Is the solution correct? No"]):
             rewards.append(-1.0)
             continue
@@ -69,11 +69,12 @@ def get_rewards(tokenizer, llm, problems, prefixes):
         text = out.outputs[0].text.strip()
 
         # ✅ Count step-level correctness
-        correct_steps = text.count("boxed{correct}") + text.count("correct")
-        incorrect_steps = text.count("boxed{incorrect}") + text.count("incorrect")
+        correct_steps = text.count("boxed{correct}") 
+        incorrect_steps = text.count("boxed{incorrect}") 
         total_steps = correct_steps + incorrect_steps
 
         if total_steps > 20:
+            # we don't want really long chains for problems like this
             rewards.append(-1.0)
             continue   
 
@@ -81,7 +82,7 @@ def get_rewards(tokenizer, llm, problems, prefixes):
         if total_steps > 0:
             base_reward = (correct_steps - incorrect_steps) / total_steps
         else:
-            base_reward = 0.0  # Neutral if PRM gave no boxed feedback
+            base_reward = -1  # bad reward if it doesnt give steps
 
         # ✅ Final judgment adjustment (small weighting, e.g., ±0.2)
         if "Is the solution correct? Yes" in text:
