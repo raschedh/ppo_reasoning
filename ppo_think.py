@@ -10,11 +10,8 @@ from datetime import datetime
 import random
 import time
 import requests
-from datetime import datetime
-from vllm_prm import get_llm
-from vllm import SamplingParams
 
-LLM = get_llm()  # Load ThinkPRM instance running on GPU 0
+from datetime import datetime
 
 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 LOG_EXAMPLE_FILE = f"ppo_training_example_log_{timestamp}.txt"
@@ -25,7 +22,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--sft_model_path", required=True)
     p.add_argument("--reward_model_path", required=True)
-    p.add_argument("--reward_model_url", default="http://localhost:8000/v1/chat/completions")
+    p.add_argument("--reward_model_url", default="http://localhost:8000/v1/completions")
     p.add_argument("--dataset", required=True)
     p.add_argument("--output_dir", default="./ppo_results")
     p.add_argument("--learning_rate", type=float, default=1.41e-5)
@@ -42,7 +39,7 @@ def wait_for_vllm_server(url, timeout=300):
     start = time.time()
     while time.time() - start < timeout:
         try:
-            r = requests.get(url.replace("/score", "/health"))
+            r = requests.get(url.replace("/v1/completions", "/health"))
             if r.status_code == 200:
                 print("[INFO] 🚀 vLLM server is ready!")
                 return
@@ -52,72 +49,40 @@ def wait_for_vllm_server(url, timeout=300):
     raise TimeoutError(f"vLLM server not responding after {timeout} seconds.")
 
 # -------------------- ThinkPRM Reward -------------------- #
-def get_rewards_thinkprm(prompts, responses):
+def get_rewards_thinkprm(prompts, responses, reward_model_path, reward_model_url):
+    tokenizer = AutoTokenizer.from_pretrained(reward_model_path)
     rewards = []
     for prompt, response in zip(prompts, responses):
         formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
-
-    [Math Problem]
-    {prompt}
-
-    [Solution]
-    {response}
-
-    Review and critique each step in the proposed solution to determine whether each step is correct. 
-    If the solution is incomplete, only verify the provided steps.
-    """
+        [Math Problem]
+        {prompt}
+        [Solution]
+        {response}
+        Review and critique each step in the proposed solution to determine whether each step is correct. 
+        If the solution is incomplete, only verify the provided steps."""
 
         formatted_prompt = tokenizer.apply_chat_template(
-            [{"role": "user", "content": formatted_prompt}],
+            [{'role': "user", "content": formatted_prompt}],
             tokenize=False,
             add_generation_prompt=True
         ) + "\nLet's verify step by step:"
 
-        sampling_params = SamplingParams(temperature=0.0, max_tokens=512)
-        outputs = LLM.generate(formatted_prompt, sampling_params)
-        verification_cot = outputs[0].outputs[0].text
+        payload = {
+            "model": reward_model_path,
+            "prompt": [formatted_prompt],
+            "max_tokens": 4096,
+            "temperature": 0.0
+        }
+
+        r = requests.post(reward_model_url, json=payload)
+        r.raise_for_status()
+        verification_cot = r.json()["choices"][0]["text"]
 
         correct_steps = verification_cot.count("\\boxed{correct}")
         total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
         rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
+
     return rewards
-
-# def get_rewards_thinkprm(tokenizer, prompts, responses, reward_model_path, reward_model_url):
-#     rewards = []
-#     for prompt, response in zip(prompts, responses):
-#         formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
-#         [Math Problem]
-#         {prompt}
-#         [Solution]
-#         {response}
-#         Review and critique each step in the proposed solution to determine whether each step is correct. 
-#         If the solution is incomplete, only verify the provided steps."""
-
-#         formatted_prompt = tokenizer.apply_chat_template(
-#             [{"role": "user", "content": formatted_prompt}],
-#             tokenize=False,
-#             add_generation_prompt=True
-#         ) + "\nLet's verify step by step:"
-
-#         payload = {
-#             "model": reward_model_path,  
-#             "messages": [
-#                 {"role": "user", "content": formatted_prompt}
-#             ],
-#             "temperature": 0.0,
-#             "max_tokens": 512  # ThinkPRM doesn't need 4096 for step-wise reasoning
-#         }
-
-#         r = requests.post(reward_model_url, json=payload)
-#         r.raise_for_status()
-#         print(r.json())
-#         verification_cot = r.json()["choices"][0]["message"]["content"]
-
-#         correct_steps = verification_cot.count("\\boxed{correct}")
-#         total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
-#         rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
-
-#     return rewards
 
 # -------------------- Logging -------------------- #
 def log_example(step, queries, responses, rewards):
@@ -143,7 +108,7 @@ def log_all_rewards(step, rewards):
 def main():
     args = parse_args()
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    # wait_for_vllm_server(args.reward_model_url)
+    wait_for_vllm_server(args.reward_model_url)
 
     dataset = load_dataset(args.dataset)["train"]
     dataset = dataset.map(lambda x: {
@@ -159,8 +124,6 @@ def main():
     gen_tokenizer.pad_token = gen_tokenizer.eos_token
     gen_tokenizer.pad_token_id = gen_tokenizer.eos_token_id
     gen_tokenizer.padding_side = "left"
-
-    prm_tokenizer = AutoTokenizer.from_pretrained(args.reward_model_path)
 
     # ✅ Load SFT model
     sft_model = AutoModelForCausalLM.from_pretrained(
@@ -186,34 +149,20 @@ def main():
 
     # ✅ PPO Training Loop
     for step, batch in enumerate(tqdm(dataloader, desc="PPO Training", unit="batch")):
-        queries = batch["prompt"]  # already a list of strings
-        print(9)
+        queries = batch["prompt"]
 
-        # ✅ Tokenize & move to correct device
         tokenized_queries = gen_tokenizer(
-            queries,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=args.max_prompt_length
-        ).to(trainer.accelerator.device)
-
-        queries_tensors = [q for q in tokenized_queries.input_ids.to(trainer.accelerator.device)]
-
-        response_ids = trainer.generate(
-            queries_tensors,
-            max_new_tokens=512,
-            do_sample=True,
-            temperature=0.7,
-            pad_token_id=gen_tokenizer.eos_token_id
+            queries, return_tensors="pt", padding=True,
+            truncation=True, max_length=args.max_prompt_length
         )
-        print(8)
-
+        queries_tensors = [q for q in tokenized_queries.input_ids]
+        response_ids = trainer.generate(
+            queries_tensors, max_new_tokens=args.max_prompt_length, do_sample=True, temperature=0.7
+        )
         response_texts = gen_tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
         # ✅ Reward computation via ThinkPRM
-        # rewards = get_rewards_thinkprm(prm_tokenizer, queries, response_texts, args.reward_model_path, args.reward_model_url)
-        rewards = get_rewards_thinkprm(queries, response_texts)
+        rewards = get_rewards_thinkprm(queries, response_texts, args.reward_model_path, args.reward_model_url)
 
         trainer.step(queries, response_texts, rewards)
         avg_reward = sum(rewards) / len(rewards)
