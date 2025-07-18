@@ -11,10 +11,6 @@ import random
 import time
 import requests
 from datetime import datetime
-from vllm_prm import get_llm
-from vllm import SamplingParams
-
-LLM = get_llm()  # Load ThinkPRM instance running on GPU 0
 
 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 LOG_EXAMPLE_FILE = f"ppo_training_example_log_{timestamp}.txt"
@@ -52,20 +48,16 @@ def wait_for_vllm_server(url, timeout=300):
     raise TimeoutError(f"vLLM server not responding after {timeout} seconds.")
 
 # -------------------- ThinkPRM Reward -------------------- #
-def get_rewards_thinkprm(prompts, responses):
+def get_rewards(tokenizer, prompts, responses, reward_model_path, reward_model_url):
     rewards = []
     for prompt, response in zip(prompts, responses):
         formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
-
-    [Math Problem]
-    {prompt}
-
-    [Solution]
-    {response}
-
-    Review and critique each step in the proposed solution to determine whether each step is correct. 
-    If the solution is incomplete, only verify the provided steps.
-    """
+        [Math Problem]
+        {prompt}
+        [Solution]
+        {response}
+        Review and critique each step in the proposed solution to determine whether each step is correct. 
+        If the solution is incomplete, only verify the provided steps."""
 
         formatted_prompt = tokenizer.apply_chat_template(
             [{"role": "user", "content": formatted_prompt}],
@@ -73,51 +65,25 @@ def get_rewards_thinkprm(prompts, responses):
             add_generation_prompt=True
         ) + "\nLet's verify step by step:"
 
-        sampling_params = SamplingParams(temperature=0.0, max_tokens=512)
-        outputs = LLM.generate(formatted_prompt, sampling_params)
-        verification_cot = outputs[0].outputs[0].text
+        payload = {
+            "model": reward_model_path,  
+            "messages": [
+                {"role": "user", "content": formatted_prompt}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 512  # ThinkPRM doesn't need 4096 for step-wise reasoning
+        }
+
+        r = requests.post(reward_model_url, json=payload)
+        r.raise_for_status()
+        print(r.json())
+        verification_cot = r.json()["choices"][0]["message"]["content"]
 
         correct_steps = verification_cot.count("\\boxed{correct}")
         total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
         rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
+
     return rewards
-
-# def get_rewards_thinkprm(tokenizer, prompts, responses, reward_model_path, reward_model_url):
-#     rewards = []
-#     for prompt, response in zip(prompts, responses):
-#         formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
-#         [Math Problem]
-#         {prompt}
-#         [Solution]
-#         {response}
-#         Review and critique each step in the proposed solution to determine whether each step is correct. 
-#         If the solution is incomplete, only verify the provided steps."""
-
-#         formatted_prompt = tokenizer.apply_chat_template(
-#             [{"role": "user", "content": formatted_prompt}],
-#             tokenize=False,
-#             add_generation_prompt=True
-#         ) + "\nLet's verify step by step:"
-
-#         payload = {
-#             "model": reward_model_path,  
-#             "messages": [
-#                 {"role": "user", "content": formatted_prompt}
-#             ],
-#             "temperature": 0.0,
-#             "max_tokens": 512  # ThinkPRM doesn't need 4096 for step-wise reasoning
-#         }
-
-#         r = requests.post(reward_model_url, json=payload)
-#         r.raise_for_status()
-#         print(r.json())
-#         verification_cot = r.json()["choices"][0]["message"]["content"]
-
-#         correct_steps = verification_cot.count("\\boxed{correct}")
-#         total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
-#         rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
-
-#     return rewards
 
 # -------------------- Logging -------------------- #
 def log_example(step, queries, responses, rewards):
@@ -212,8 +178,7 @@ def main():
         response_texts = gen_tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
         # ✅ Reward computation via ThinkPRM
-        # rewards = get_rewards_thinkprm(prm_tokenizer, queries, response_texts, args.reward_model_path, args.reward_model_url)
-        rewards = get_rewards_thinkprm(queries, response_texts)
+        rewards = get_rewards(queries, response_texts)
 
         trainer.step(queries, response_texts, rewards)
         avg_reward = sum(rewards) / len(rewards)
