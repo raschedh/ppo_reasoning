@@ -6,15 +6,22 @@
 #SBATCH --mem=64G
 
 source ~/.bashrc
-# pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
-# pip install --upgrade vllm
+pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
+pip install --upgrade vllm
+git clone https://github.com/SkyworkAI/skywork-o1-prm-inference.git
+cd skywork-o1-prm-inference
+pip install -e .
+cd ..
+
 # -------- Paths & Config -------- #
 SFT_MODEL="seldschuk/sft-model"
-REWARD_MODEL="launch/ThinkPRM-7B"
+# REWARD_MODEL="launch/ThinkPRM-7B"
+REWARD_MODEL="Skywork/Skywork-o1-Open-PRM-Qwen-2.5-7B"
 DATASET="Jiayi-Pan/Countdown-Tasks-3to4"
 OUTPUT_DIR="ppo_model/"
 PORT=8000
-REWARD_MODEL_URL="http://localhost:${PORT}/v1/completions"
+# REWARD_MODEL_URL="http://localhost:${PORT}/v1/completions"
+REWARD_MODEL_URL="http://localhost:${PORT}/v1" 
 
 echo "[INFO] Allocated GPUs: $CUDA_VISIBLE_DEVICES"
 
@@ -30,6 +37,7 @@ VLLM_PID=$!
 
 # -------- Run PPO training on GPU 1 -------- #
 echo "[INFO] Starting PPO training on GPU 1..."
+
 CUDA_VISIBLE_DEVICES=1 python -u ppo_trainer.py \
     --sft_model_path ${SFT_MODEL} \
     --reward_model_path ${REWARD_MODEL} \

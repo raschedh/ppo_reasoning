@@ -9,7 +9,8 @@
 source ~/.bashrc
 # conda activate your_env
 
-MODEL="launch/ThinkPRM-1.5B"
+# MODEL="launch/ThinkPRM-1.5B"
+MODEL="Skywork/Skywork-o1-Open-PRM-Qwen-2.5-7B"
 PORT=8000
 
 echo "[INFO] Starting vLLM serve for Process Reward Model..."

@@ -1,5 +1,3 @@
-import time
-import requests
 import torch
 import argparse
 from datasets import load_dataset
@@ -7,9 +5,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig, get_peft_model
 from torch.utils.data import DataLoader
-import random
+from tqdm import tqdm
 from datetime import datetime
-from tqdm import tqdm 
+import random
+import time
+import requests
+
+from openai import OpenAI
+from model_utils.io_utils import prepare_input, derive_step_rewards_vllm
 
 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 LOG_EXAMPLE_FILE = f"ppo_training_example_log_{timestamp}.txt"
@@ -20,7 +23,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--sft_model_path", required=True)
     p.add_argument("--reward_model_path", required=True)
-    p.add_argument("--reward_model_url", default="http://localhost:8000/v1/completions")
+    p.add_argument("--reward_model_url", default="http://localhost:8081/v1")
     p.add_argument("--dataset", required=True)
     p.add_argument("--output_dir", default="./ppo_results")
     p.add_argument("--learning_rate", type=float, default=1.41e-5)
@@ -29,17 +32,16 @@ def parse_args():
     p.add_argument("--mini_batch_size", type=int, default=4)
     p.add_argument("--lora_rank", type=int, default=32)
     p.add_argument("--max_prompt_length", type=int, default=4096)
-    p.add_argument("--max_gen_length", type=int, default=4096)
+    # p.add_argument("--max_gen_length", type=int, default=4096)
     return p.parse_args()
 
-# -------------------- Reward Model Query -------------------- #
+# -------------------- vLLM PRM -------------------- #
 def wait_for_vllm_server(url, timeout=300):
-    """Wait until vLLM server is ready (default timeout: 5 min)."""
     print(f"[INFO] Waiting for vLLM server at {url}...")
     start = time.time()
     while time.time() - start < timeout:
         try:
-            r = requests.get(url.replace("/v1/completions", "/health"))
+            r = requests.get(url.replace("/v1", "/health"))
             if r.status_code == 200:
                 print("[INFO] 🚀 vLLM server is ready!")
                 return
@@ -48,48 +50,61 @@ def wait_for_vllm_server(url, timeout=300):
         time.sleep(5)
     raise TimeoutError(f"vLLM server not responding after {timeout} seconds.")
 
-def get_rewards(prompts, responses, reward_model_path, reward_model_url):
-    tokenizer = AutoTokenizer.from_pretrained(reward_model_path)
+def get_rewards_skywork(tokenizer, prompts, responses, reward_model_url):
+    processed_data = [
+        prepare_input(prompt, response, tokenizer=tokenizer, step_token="\n")
+        for prompt, response in zip(prompts, responses)
+    ]
+    input_ids, steps, reward_flags = zip(*processed_data)
 
-    rewards = []
-    for prompt, response in zip(prompts, responses):
-        formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
-        [Math Problem]
-        {prompt}
-        [Solution]
-        {response}
-        Review and critique each step in the proposed solution to determine whether each step is correct. 
-        If the solution is incomplete, only verify the provided steps."""
+    client = OpenAI(api_key="EMPTY", base_url=reward_model_url)
+    model_name = client.models.list().data[0].id
+    rewards = client.embeddings.create(input=input_ids, model=model_name)
+    step_rewards = derive_step_rewards_vllm(rewards, reward_flags)
+    scalar_rewards = [sum(sr) / len(sr) for sr in step_rewards]
+    return scalar_rewards
 
-        formatted_prompt = tokenizer.apply_chat_template(
-            [{'role': "user", "content": formatted_prompt}],
-            tokenize=False,
-            add_generation_prompt=True
-        ) + "\nLet's verify step by step:"
+# def get_rewards_thinkprm(prompts, responses, reward_model_path, reward_model_url):
+#     tokenizer = AutoTokenizer.from_pretrained(reward_model_path)
 
-        payload = {
-            "model": reward_model_path,
-            "prompt": [formatted_prompt],
-            "max_tokens": 4096,
-            "temperature": 0.0
-        }
+#     rewards = []
+#     for prompt, response in zip(prompts, responses):
+#         formatted_prompt = f"""You are given a math problem and a proposed step-by-step solution:
+#         [Math Problem]
+#         {prompt}
+#         [Solution]
+#         {response}
+#         Review and critique each step in the proposed solution to determine whether each step is correct. 
+#         If the solution is incomplete, only verify the provided steps."""
 
-        r = requests.post(reward_model_url, json=payload)
-        r.raise_for_status()
-        print(formatted_prompt)
-        verification_cot = r.json()["choices"][0]["text"]
+#         formatted_prompt = tokenizer.apply_chat_template(
+#             [{'role': "user", "content": formatted_prompt}],
+#             tokenize=False,
+#             add_generation_prompt=True
+#         ) + "\nLet's verify step by step:"
 
-        correct_steps = verification_cot.count("\\boxed{correct}")
-        total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
-        rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
+#         payload = {
+#             "model": reward_model_path,
+#             "prompt": [formatted_prompt],
+#             "max_tokens": 4096,
+#             "temperature": 0.0
+#         }
 
-    return rewards
+#         r = requests.post(reward_model_url, json=payload)
+#         r.raise_for_status()
+#         print(formatted_prompt)
+#         verification_cot = r.json()["choices"][0]["text"]
 
+#         correct_steps = verification_cot.count("\\boxed{correct}")
+#         total_steps = correct_steps + verification_cot.count("\\boxed{incorrect}")
+#         rewards.append(correct_steps / total_steps if total_steps > 0 else 0.0)
+
+#     return rewards
+
+# -------------------- Logging -------------------- #
 def log_example(step, queries, responses, rewards):
-    """Log a random example with timestamp to a file."""
     idx = random.randint(0, len(queries) - 1)
     avg_reward = sum(rewards) / len(rewards)
-
     log_entry = (
         f"\nStep {step}\n"
         f"Average Reward: {avg_reward:.4f}\n"
@@ -98,121 +113,86 @@ def log_example(step, queries, responses, rewards):
         f"Reward: {rewards[idx]:.4f}\n"
         + "=" * 50 + "\n"
     )
-    # Print to console and append to log file
     with open(LOG_EXAMPLE_FILE, "a") as f:
         f.write(log_entry)
 
 def log_all_rewards(step, rewards):
-    """Append average reward for every batch to a separate file."""
     avg_reward = sum(rewards) / len(rewards)
     with open(LOG_REWARD_FILE, "a") as f:
         f.write(f"{timestamp}, Step {step}, Avg Reward: {avg_reward:.4f}\n")
 
+# -------------------- Main -------------------- #
 def main():
     args = parse_args()
 
-    # ✅ Ensure bf16 or fp16 on the current GPU
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # print(f"[INFO] Using device: {device}, dtype: {torch_dtype}")
-
-    # ✅ Wait for vLLM server to be ready
     wait_for_vllm_server(args.reward_model_url)
 
-    # ✅ Load dataset
     dataset = load_dataset(args.dataset)["train"]
     dataset = dataset.map(lambda x: {
         "prompt": (
-            f"Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}... "
-            )
-        })
+            f"Using the numbers {str(x['nums'])}, create an equation that equals {str(x['target'])}..."
+        )
+    })
     dataset = dataset.remove_columns(["target", "nums"])
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    # ✅ Load tokenizer (base model tokenizer)
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B", trust_remote_code=True)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.padding_side = "left"
+    # ✅ Generation tokenizer (for SFT model & PPO)
+    gen_tokenizer = AutoTokenizer.from_pretrained(args.sft_model_path, trust_remote_code=True)
+    gen_tokenizer.pad_token = gen_tokenizer.eos_token
+    gen_tokenizer.pad_token_id = gen_tokenizer.eos_token_id
+    gen_tokenizer.padding_side = "left"
 
-    # ✅ Load your SFT model
-    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    # ✅ PRM tokenizer (for reward computation only)
+    prm_tokenizer = AutoTokenizer.from_pretrained(args.reward_model_path, trust_remote_code=True)
 
-    base_model = AutoModelForCausalLM.from_pretrained(
-        args.sft_model_path,
-        torch_dtype=torch_dtype,
-        trust_remote_code=True
+    sft_model = AutoModelForCausalLM.from_pretrained(
+        args.sft_model_path, torch_dtype=torch_dtype, trust_remote_code=True
     )
-
-    # ✅ Apply LoRA
     lora_config = LoraConfig(
-        r=args.lora_rank,
-        lora_alpha=16,
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj"
-        ]
+        r=args.lora_rank, lora_alpha=16, lora_dropout=0.05,
+        bias="none", task_type="CAUSAL_LM",
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     )
-    base_model = get_peft_model(base_model, lora_config)
+    sft_model = get_peft_model(sft_model, lora_config)
+    policy = AutoModelForCausalLMWithValueHead(sft_model)
 
-    # ✅ Wrap WITH the PPO value head (Correct Way)
-    model = AutoModelForCausalLMWithValueHead(base_model)
-
-    # ✅ PPO Config
     ppo_config = PPOConfig(
         learning_rate=args.learning_rate,
         mini_batch_size=args.mini_batch_size,
         batch_size=args.batch_size,
         ppo_epochs=args.ppo_epochs,
-        log_with=None,
-        init_kl_coef=0.2,
-        target_kl=6.0,
+        log_with=None, init_kl_coef=0.2, target_kl=6.0,
     )
-
-    trainer = PPOTrainer(config=ppo_config, model=model, tokenizer=tokenizer)
+    trainer = PPOTrainer(config=ppo_config, model=policy, tokenizer=gen_tokenizer)
 
     # ✅ PPO Training Loop
     for step, batch in enumerate(tqdm(dataloader, desc="PPO Training", unit="batch")):
-        queries = batch["prompt"]  # already a list of strings
-        print(9)
-        # ✅ Tokenize batch (variable-length handled by padding=True)
-        tokenized_queries = tokenizer(
-            queries,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=args.max_prompt_length
-        )
+        queries = batch["prompt"]
 
+        tokenized_queries = gen_tokenizer(
+            queries, return_tensors="pt", padding=True,
+            truncation=True, max_length=args.max_prompt_length
+        )
         queries_tensors = [q for q in tokenized_queries.input_ids]
-        print(8)
         response_ids = trainer.generate(
-            queries_tensors,
-            max_new_tokens=512,
-            do_sample=True,
-            temperature=0.7
+            queries_tensors, max_length=args.max_prompt_length, do_sample=True, temperature=0.7
         )
-        print(7)
-        response_texts = tokenizer.batch_decode(response_ids, skip_special_tokens=True)
+        response_texts = gen_tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
-        # ✅ Get rewards (batch mode)
-        rewards = get_rewards(queries, response_texts, args.reward_model_path, args.reward_model_url)
-        print(6)
-        # ✅ PPO step
+        # ✅ Reward computation via vLLM PRM
+        rewards = get_rewards_skywork(prm_tokenizer, queries, response_texts, args.reward_model_url)
+
         trainer.step(queries, response_texts, rewards)
-        
-        print(f"[DEBUG] Step {step} completed. Avg Reward: {sum(rewards)/len(rewards):.4f}")
+        avg_reward = sum(rewards) / len(rewards)
+        print(f"[DEBUG] Step {step} completed. Avg Reward: {avg_reward:.4f}")
 
         log_all_rewards(step, rewards)
-        # ✅ Only log an example every 50 steps
         if step % 50 == 0:
             log_example(step, queries, response_texts, rewards)
 
-    model.save_pretrained(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
+    policy.save_pretrained(args.output_dir)
+    gen_tokenizer.save_pretrained(args.output_dir)
 
 if __name__ == "__main__":
     main()
