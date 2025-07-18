@@ -61,7 +61,7 @@ def get_rewards(tokenizer, llm, problems, prefixes):
     rewards = []
     for prefix, out in zip(prefixes, outputs):
         # ✅ Immediate penalty for reward hacking
-        if any(x in prefix for x in ["boxed{correct}", "boxed{incorrect}",
+        if any(x in prefix for x in ["boxed{correct}", "boxed{incorrect}", "correct", "incorrect",
                                      "Is the solution correct? Yes", "Is the solution correct? No"]):
             rewards.append(-1.0)
             continue
@@ -69,8 +69,8 @@ def get_rewards(tokenizer, llm, problems, prefixes):
         text = out.outputs[0].text.strip()
 
         # ✅ Count step-level correctness
-        correct_steps = text.count("boxed{correct}") 
-        incorrect_steps = text.count("boxed{incorrect}")
+        correct_steps = text.count("boxed{correct}") + text.count("correct")
+        incorrect_steps = text.count("boxed{incorrect}") + text.count("incorrect")
         total_steps = correct_steps + incorrect_steps
 
         if total_steps > 20:
@@ -170,7 +170,7 @@ def main():
 
     # ✅ PPO Training Loop
     for step, batch in enumerate(tqdm(dataloader, desc="PPO Training", unit="batch")):
-        if step >100:
+        if step>50:
             break
         queries = batch["prompt"]
 
@@ -186,7 +186,7 @@ def main():
             queries_tensors,
             max_length=args.max_prompt_length,
             do_sample=True,
-            temperature=0.7,
+            temperature=0.3,
             pad_token_id=gen_tokenizer.eos_token_id
         )
 
@@ -208,8 +208,11 @@ def main():
 
         # ✅ Logging
         if step % 5 == 0:
-            avg_reward = sum(rewards) / len(rewards)
-            log_step(step, queries[0], response_texts[0], rewards[0], reward_outputs[0], avg_reward)
+            log_step(step, queries[0], response_texts[0], rewards[0], reward_outputs[0], sum(rewards) / len(rewards))
+        
+        del tokenized_queries, tokenized_responses, queries_tensors, responses_tensors, response_ids
+        del rewards, reward_outputs, response_texts
+        torch.cuda.empty_cache()
 
     # ✅ Save Model
     policy.save_pretrained(args.output_dir)
