@@ -96,26 +96,20 @@ def get_rewards(tokenizer, prompts, responses, reward_model_path, reward_model_u
         
         outputs.append(verification_cot)
 
-        if total_steps > 20:
+        if 20 >= total_steps > 0:
+            base_reward = (correct_steps - incorrect_steps) / total_steps
+
+            if "Is the solution correct? Yes" in verification_cot:
+                base_reward += 0.2
+            elif "Is the solution correct? No" in verification_cot:
+                base_reward -= 0.2
+            
+            reward = max(-1.0, min(1.0, base_reward))
+            rewards.append(reward)
+
+        else:
             # we don't want really long chains for problems like this
             rewards.append(-1.0)
-            continue  
-
-        # ✅ Base reward (step-level)
-        if total_steps > 0:
-            base_reward = (correct_steps - incorrect_steps) / total_steps
-        else:
-            base_reward = -1  # bad reward if it doesnt give steps
-
-        # ✅ Final judgment adjustment (small weighting, e.g., ±0.2)
-        if "Is the solution correct? Yes" in verification_cot:
-            base_reward += 0.2
-        elif "Is the solution correct? No" in verification_cot:
-            base_reward -= 0.2
-
-        reward = max(-1.0, min(1.0, base_reward))
-        rewards.append(reward)
-
 
     return rewards, outputs
 
@@ -150,7 +144,6 @@ def main():
     dataset = dataset.remove_columns(["target", "nums"])
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    # ✅ Generation tokenizer (for PPO training)
     gen_tokenizer = AutoTokenizer.from_pretrained(args.sft_model_path, trust_remote_code=True)
     gen_tokenizer.pad_token = gen_tokenizer.eos_token
     gen_tokenizer.pad_token_id = gen_tokenizer.eos_token_id
@@ -158,7 +151,6 @@ def main():
 
     reward_tokenizer = AutoTokenizer.from_pretrained(args.reward_model_path)
 
-    # ✅ Load SFT model
     sft_model = AutoModelForCausalLM.from_pretrained(
         args.sft_model_path, torch_dtype=torch_dtype, trust_remote_code=True
     )
@@ -170,7 +162,6 @@ def main():
     sft_model = get_peft_model(sft_model, lora_config)
     policy = AutoModelForCausalLMWithValueHead.from_pretrained(sft_model)
 
-    # ✅ PPO Config
     ppo_config = PPOConfig(
         learning_rate=args.learning_rate,
         mini_batch_size=args.mini_batch_size,
@@ -180,9 +171,9 @@ def main():
     )
     trainer = PPOTrainer(config=ppo_config, model=policy, tokenizer=gen_tokenizer)
 
-    # ✅ PPO Training Loop
     for step, batch in enumerate(tqdm(dataloader, desc="PPO Training", unit="batch")):
-        if step>50:
+        # remove for entire dataset
+        if step > 50:
             break
         queries = batch["prompt"]
 
@@ -193,7 +184,6 @@ def main():
 
         queries_tensors = [q for q in tokenized_queries.input_ids]
 
-        # ✅ Generate responses
         response_ids = trainer.generate(
             queries_tensors,
             max_length=args.max_prompt_length,
@@ -204,11 +194,10 @@ def main():
 
         response_texts = gen_tokenizer.batch_decode(response_ids, skip_special_tokens=True)
 
-        # ✅ Compute rewards
+        # Compute rewards
         rewards, reward_outputs = get_rewards(reward_tokenizer, queries, response_texts, args.reward_model_path, args.reward_model_url)
         rewards = [torch.tensor(r, dtype=torch.float32).to(trainer.accelerator.device) for r in rewards]
         
-        # ✅ Convert to tensors before PPO step
         tokenized_responses = gen_tokenizer(
             response_texts, return_tensors="pt", padding=True, truncation=True,
             max_length=args.max_prompt_length
@@ -218,7 +207,7 @@ def main():
 
         trainer.step(queries_tensors, responses_tensors, rewards)
 
-        # ✅ Logging
+        # Logging
         if step % 5 == 0:
             log_step(step, queries[0], response_texts[0], rewards[0], reward_outputs[0], sum(rewards) / len(rewards))
         

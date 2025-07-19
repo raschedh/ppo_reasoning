@@ -39,13 +39,12 @@ class PrintExampleCallback(TrainerCallback):
         self.log_file = log_file
 
     def on_log(self, args, state, control, **kwargs):
-        # Trigger every logging_steps
+
         if state.global_step % args.logging_steps == 0 and state.global_step > 0:
             # Pick a random example
             example = random.choice(self.dataset)
             query = example["query"]
 
-            # Tokenize and generate output
             inputs = self.tokenizer(query, return_tensors="pt").to("cuda" if torch.cuda.is_available() else "cpu")
             model = kwargs["model"]
             model.eval()
@@ -101,10 +100,9 @@ def main() -> None:
         optim="adamw_torch",
         bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
         fp16=not (torch.cuda.is_available() and torch.cuda.is_bf16_supported()),
-        packing=False,  # ✅ Must be False for completion-only masking
+        packing=False,  # must be False for completion-only masking
     )
 
-    # LoRA configuration
     lora_cfg = LoraConfig(
         r=args.lora_rank,
         lora_alpha=args.lora_alpha,
@@ -114,7 +112,6 @@ def main() -> None:
         target_modules=args.lora_target_modules.split(","),
     )
 
-    # Initialize trainer
     trainer = SFTTrainer(
         model=model,
         args=sft_args,
@@ -132,7 +129,7 @@ def main() -> None:
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         torch.cuda.set_device(local_rank)
 
-    # ✅ Evaluate initial performance before training
+    # Evaluate initial performance before training
     model.eval()
 
     first_query = train_dataset[0]["query"]
