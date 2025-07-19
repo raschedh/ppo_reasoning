@@ -13,7 +13,7 @@ REWARD_MODEL="launch/ThinkPRM-1.5B"
 DATASET="Jiayi-Pan/Countdown-Tasks-3to4"
 OUTPUT_DIR="ppo_model/"
 
-python -u ppo_trainer_singleGPU.py \
+python -u ppo_trainer_single.py \
     --sft_model_path ${SFT_MODEL} \
     --reward_model_path ${REWARD_MODEL} \
     --dataset ${DATASET} \

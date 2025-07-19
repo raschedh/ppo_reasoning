@@ -33,7 +33,7 @@ VLLM_PID=$!
 # -------- Run PPO training on GPU 1 -------- #
 echo "[INFO] Starting PPO training on GPU 1..."
 
-CUDA_VISIBLE_DEVICES=1 python -u ppo_trainer.py \
+CUDA_VISIBLE_DEVICES=1 python -u ppo_trainer_multi.py \
     --sft_model_path ${SFT_MODEL} \
     --reward_model_path ${REWARD_MODEL} \
     --reward_model_url ${REWARD_MODEL_URL} \
