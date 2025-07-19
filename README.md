@@ -4,7 +4,7 @@ This repo contains implementations for training a basic reasoning-style model us
 
 There are two main files:
 1. **Single GPU** SFT/PPO training - the Process Reward Model (PRM - [ThinkPRM](https://github.com/mukhal/thinkprm) 1.5B parameters) and policy ([Qwen2.5 7B](https://huggingface.co/Qwen/Qwen2.5-7B)) are on the same GPU.
-2. **Multi-GPU** SFT/PPO training - the PRM (ThinkPRM 7B) is deployed as a vLLM server and the policy (Qwen2.5 7B) is on another GPU making inference calls. This particular PRM doesn't support certain endpoints so it is somewhat experimental. 
+2. **Multi-GPU** SFT/PPO training - the PRM (larger ThinkPRM 7B) is deployed as a vLLM server and the policy (Qwen2.5 7B) is on another GPU making inference calls. This particular PRM doesn't support certain endpoints so it is somewhat experimental. 
 
 The above were tested using Nvidia A40 GPUs.
 
