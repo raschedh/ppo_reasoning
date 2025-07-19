@@ -5,7 +5,8 @@
 
 # -------- Environment ------------------------------------------------ #
 source ~/.bashrc
-pip install transformers trl peft datasets accelerate --quiet
+# conda activate your_env
+pip install --upgrade --quiet transformers==4.38.2 trl==0.9.4 peft==0.10.0 datasets accelerate
 # -------- User-editable ---------------------------------------------- #
 MODEL_PATH="Qwen/Qwen2.5-7B"  # Base model path
 TRAIN_PATH="Asap7772/cog_behav_all_strategies"  # Training data
