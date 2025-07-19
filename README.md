@@ -12,7 +12,7 @@ The above were tested using Nvidia A40 GPUs.
 ---
 ## Project Overview
 
-### ** `sft`**
+### `sft`
 - SFT for the initial reasoning policy. 
 - Fine-tunes it on reasoning dataset (Countdown Maths task - make target number from 3 others) to initialise PPO training. We use a [huggingface dataset](https://huggingface.co/datasets/Asap7772/cog_behav_all_strategies).
 
