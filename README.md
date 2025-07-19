@@ -16,11 +16,11 @@ The above were tested using Nvidia A40 GPUs.
 - SFT for the initial reasoning policy. 
 - Fine-tunes it on reasoning dataset (Countdown Maths task - make target number from 3 others) to initialise PPO training. We use a [huggingface dataset](https://huggingface.co/datasets/Asap7772/cog_behav_all_strategies).
 
-### ** `ppo_single_gpu`**
+### `ppo_single_gpu`
 - PPO training loop where both the **policy model** and **PRM** run on a **single GPU**.
 - Suitable for smaller-scale experiments
 
-### ** `ppo_multi_gpu`**
+### `ppo_multi_gpu`
 - PPO training with 2 GPUs.
 - The **PRM** is accessed remotely through a HTTP call to a vLLM server.
 - Allows scaling to larger PRMs while keeping the policy model training isolated.
