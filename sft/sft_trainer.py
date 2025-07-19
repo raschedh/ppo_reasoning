@@ -119,8 +119,8 @@ def main() -> None:
         tokenizer=tokenizer,
         peft_config=lora_cfg,
         formatting_func=formatting_prompts_func,
-        data_collator=data_collator,  # ✅ Required for completion-only
-        callbacks=[PrintExampleCallback(tokenizer=tokenizer, dataset=train_dataset, log_file=log_file)],  # ✅ Added callback
+        data_collator=data_collator, 
+        callbacks=[PrintExampleCallback(tokenizer=tokenizer, dataset=train_dataset, log_file=log_file)], 
 
     )
 

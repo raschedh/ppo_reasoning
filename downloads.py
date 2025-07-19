@@ -10,14 +10,14 @@ def download_model(model_name, save_dir):
 
     model.save_pretrained(save_dir)
     tokenizer.save_pretrained(save_dir)
-    print(f"✅ Model and tokenizer saved to: {save_dir}")
+    print(f"Model and tokenizer saved to: {save_dir}")
     return 
 
 def download_dataset(dataset_name, save_dir):
     os.makedirs(save_dir, exist_ok=True)
     ds = load_dataset(dataset_name)
     ds.save_to_disk(save_dir)
-    print(f"✅ Dataset saved locally at: {save_dir}")
+    print(f"Dataset saved locally at: {save_dir}")
     return
 
 
