@@ -12,23 +12,18 @@ The above were tested using Nvidia A40 GPUs.
 ---
 ## Project Overview
 
-### **1. `sft_trainer.py`**
+### ** `sft`**
 - SFT for the initial reasoning policy. 
 - Fine-tunes it on reasoning dataset (Countdown Maths task - make target number from 3 others) to initialise PPO training. We use a [huggingface dataset](https://huggingface.co/datasets/Asap7772/cog_behav_all_strategies).
 
-### **2. `ppo_trainer_singleGPU.py`**
+### ** `ppo_single_gpu`**
 - PPO training loop where both the **policy model** and **PRM** run on a **single GPU**.
 - Suitable for smaller-scale experiments
 
-### **3. `ppo_trainer.py`**
-- PPO training with **two GPUs**.
+### ** `ppo_multi_gpu`**
+- PPO training with 2 GPUs.
 - The **PRM** is accessed remotely through a HTTP call to a vLLM server.
 - Allows scaling to larger PRMs while keeping the policy model training isolated.
-
-### **4. `vllm_prm.py`**
-- Starts a **vLLM server** hosting the PRM.
-- Provides an API endpoint for PPO training to query rewards.
-- Ideal for decoupling PRM evaluation from the policy optimization.
 
 ## Libraries
 
