@@ -1,8 +1,8 @@
 torch
-vllm
-argparse
+transformers
+datasets
+tqdm
+trl
+peft
 requests
-datasets 
-transformers 
-trl 
-peft 
+vllm

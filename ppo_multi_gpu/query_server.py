@@ -1,8 +1,8 @@
 import requests
 
-url = "http://localhost:8000/v1/completions"
+url = "<url>"
 payload = {
-    "model": "launch/ThinkPRM-7B",
+    "model": "<model>",
     "prompt": [
         "You are given a math problem and a proposed step-by-step solution:\n"
         "[Math Problem]\n"
