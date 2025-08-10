@@ -1,6 +1,6 @@
 # SFT and PPO for Basic Reasoning Model
 
-This repo contains implementations for training a basic reasoning-style model using **Supervised Fine-Tuning (SFT)** (LoRA) and **Proximal Policy Optimization (PPO)**. 
+This repo contains implementations for training a reasoning-style model using **Supervised Fine-Tuning (SFT)** (LoRA) and **Proximal Policy Optimization (PPO)**. 
 
 There are two main files:
 1. **Single GPU** SFT/PPO training - the Process Reward Model (PRM - [ThinkPRM](https://github.com/mukhal/thinkprm) 1.5B parameters) and policy ([Qwen2.5 7B](https://huggingface.co/Qwen/Qwen2.5-7B)) are on the same GPU.
